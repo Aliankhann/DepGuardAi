@@ -1,0 +1,88 @@
+{
+  "results": [
+    {
+      "vulns": [
+        {
+          "id": "GHSA-p6mc-m468-83gw",
+          "modified": "2023-04-11T01:46:51.241120Z",
+          "published": "2019-07-10T20:09:50Z",
+          "aliases": ["CVE-2019-10744"],
+          "summary": "Prototype Pollution in lodash",
+          "details": "Versions of lodash prior to 4.17.12 are vulnerable to Prototype Pollution. The function defaultsDeep could be tricked into adding or modifying properties of Object.prototype using a constructor payload.",
+          "affected": [
+            {
+              "package": {
+                "ecosystem": "npm",
+                "name": "lodash",
+                "purl": "pkg:npm/lodash"
+              },
+              "ranges": [
+                {
+                  "type": "SEMVER",
+                  "events": [
+                    {"introduced": "0"},
+                    {"fixed": "4.17.12"}
+                  ]
+                }
+              ],
+              "versions": ["4.17.4", "4.17.10", "4.17.11"]
+            }
+          ],
+          "severity": [
+            {
+              "type": "CVSS_V3",
+              "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:H"
+            }
+          ],
+          "database_specific": {
+            "severity": "HIGH",
+            "cwe_ids": ["CWE-1321"],
+            "github_reviewed": true
+          },
+          "references": [
+            {
+              "type": "ADVISORY",
+              "url": "https://github.com/advisories/GHSA-p6mc-m468-83gw"
+            }
+          ]
+        },
+        {
+          "id": "GHSA-4xc9-xhrj-v574",
+          "modified": "2023-04-11T01:48:00Z",
+          "published": "2021-09-01T18:15:00Z",
+          "aliases": ["CVE-2021-23337"],
+          "summary": "Command Injection in lodash",
+          "details": "Lodash versions prior to 4.17.21 are vulnerable to Command Injection via the template function.",
+          "affected": [
+            {
+              "package": {
+                "ecosystem": "npm",
+                "name": "lodash"
+              },
+              "ranges": [
+                {
+                  "type": "SEMVER",
+                  "events": [
+                    {"introduced": "0"},
+                    {"fixed": "4.17.21"}
+                  ]
+                }
+              ]
+            }
+          ],
+          "severity": [
+            {
+              "type": "CVSS_V3",
+              "score": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H"
+            }
+          ],
+          "database_specific": {
+            "severity": "HIGH",
+            "cwe_ids": ["CWE-78"],
+            "github_reviewed": true
+          }
+        }
+      ]
+    }
+  ]
+}

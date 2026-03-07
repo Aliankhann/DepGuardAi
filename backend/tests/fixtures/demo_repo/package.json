@@ -1,0 +1,13 @@
+{
+  "name": "demo-app",
+  "version": "1.0.0",
+  "description": "DepGuard demo app with known-vulnerable dependencies",
+  "dependencies": {
+    "lodash": "4.17.4",
+    "express": "4.17.1",
+    "axios": "0.21.1"
+  },
+  "devDependencies": {
+    "jest": "27.0.0"
+  }
+}
