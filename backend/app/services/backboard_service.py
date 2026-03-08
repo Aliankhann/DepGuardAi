@@ -12,6 +12,11 @@ from app.models.usage import UsageLocation
 
 logger = logging.getLogger(__name__)
 
+# Limits concurrent Backboard API calls across all agents.
+# Without this, asyncio.gather across 14 alerts fires 20+ simultaneous calls
+# against the same assistant, causing rate-limit fallbacks.
+_BACKBOARD_SEMAPHORE = asyncio.Semaphore(5)
+
 # Fallback for depvuln_agent when Backboard is unavailable.
 # depvuln_agent fills in package/vuln-specific fields at runtime.
 FALLBACK_DEPENDENCY_INVESTIGATION: dict = {
@@ -21,6 +26,18 @@ FALLBACK_DEPENDENCY_INVESTIGATION: dict = {
     "suggested_safe_version": None,
     "investigation_focus": [],
     "investigation_source": "fallback",
+}
+
+FALLBACK_BLAST_RADIUS: dict = {
+    "scope_clarity": "low",
+    "affected_surfaces": [],
+}
+
+FALLBACK_REMEDIATION: dict = {
+    "temporary_mitigation": "Restrict or disable affected functionality until the package is upgraded.",
+    "permanent_fix_summary": "Upgrade to the safe version listed in the OSV advisory and re-run DepGuard scan.",
+    "review_note": "AI analysis unavailable — manual senior review required before deploying fix.",
+    "senior_review_urgency": "planned",
 }
 
 FALLBACK_ANALYSIS = {
@@ -50,6 +67,17 @@ def _get_client():
     except ImportError:
         logger.warning("backboard-sdk not installed")
         return None
+
+
+async def _add_message(client, thread_id: str, content: str, timeout: float, **kwargs) -> object:
+    """Semaphore-guarded wrapper around client.add_message.
+    Limits concurrent Backboard calls across all agents to prevent rate-limit fallbacks.
+    """
+    async with _BACKBOARD_SEMAPHORE:
+        return await asyncio.wait_for(
+            client.add_message(thread_id=thread_id, content=content, **kwargs),
+            timeout=timeout,
+        )
 
 
 async def ensure_repository_assistant(client, repo: Repository, db: Session) -> Optional[str]:
@@ -258,15 +286,9 @@ async def run_risk_analysis(
         # memory="Auto": Backboard auto-extracts key findings into this repository's
         # assistant memory, so future investigations on the same repo receive prior
         # context (e.g. previously identified hotspots, past remediation history).
-        response = await asyncio.wait_for(
-            client.add_message(
-                thread_id=thread.thread_id,
-                content=prompt,
-                memory="Auto",
-                llm_provider="anthropic",
-                model_name="claude-sonnet-4-6",
-            ),
-            timeout=30.0,
+        response = await _add_message(
+            client, thread.thread_id, prompt, timeout=30.0,
+            memory="Auto", llm_provider="anthropic", model_name="claude-sonnet-4-6",
         )
         analysis = _parse_risk_json(response.content)
         analysis["analysis_source"] = "backboard_ai"
@@ -305,19 +327,14 @@ async def recall_remediation_context(
             client.create_thread(assistant_id),
             timeout=5.0,
         )
-        response = await asyncio.wait_for(
-            client.add_message(
-                thread_id=thread.thread_id,
-                content=(
-                    f"Has the package '{dep_name}' (vulnerability: {vuln_id}) been remediated "
-                    f"in this repository before? If so, briefly describe what approach was used "
-                    f"(e.g. version upgraded, endpoint disabled, workaround applied). "
-                    f"If no prior remediation is known, reply with exactly: NO_PRIOR_REMEDIATION"
-                ),
-                llm_provider="anthropic",
-                model_name="claude-sonnet-4-6",
-            ),
+        response = await _add_message(
+            client, thread.thread_id,
+            f"Has the package '{dep_name}' (vulnerability: {vuln_id}) been remediated "
+            f"in this repository before? If so, briefly describe what approach was used "
+            f"(e.g. version upgraded, endpoint disabled, workaround applied). "
+            f"If no prior remediation is known, reply with exactly: NO_PRIOR_REMEDIATION",
             timeout=15.0,
+            llm_provider="anthropic", model_name="claude-sonnet-4-6",
         )
         content = response.content.strip()
         if "NO_PRIOR_REMEDIATION" in content:
@@ -355,15 +372,9 @@ async def write_investigation_memory(
             client.create_thread(assistant_id),
             timeout=5.0,
         )
-        await asyncio.wait_for(
-            client.add_message(
-                thread_id=thread.thread_id,
-                content=summary,
-                memory="Auto",
-                llm_provider="anthropic",
-                model_name="claude-sonnet-4-6",
-            ),
-            timeout=20.0,
+        await _add_message(
+            client, thread.thread_id, summary, timeout=20.0,
+            memory="Auto", llm_provider="anthropic", model_name="claude-sonnet-4-6",
         )
         logger.info(f"[backboard_service] Investigation memory written for repo {repo.id}")
     except (asyncio.TimeoutError, Exception) as e:
@@ -436,15 +447,9 @@ Rules:
         # memory="Auto": Backboard extracts key findings into this repository's
         # depvuln assistant memory so future scans on the same repo recall prior
         # vulnerability intelligence (e.g. previously analyzed package behaviors).
-        response = await asyncio.wait_for(
-            client.add_message(
-                thread_id=thread.thread_id,
-                content=prompt,
-                memory="Auto",
-                llm_provider="anthropic",
-                model_name="claude-sonnet-4-6",
-            ),
-            timeout=25.0,
+        response = await _add_message(
+            client, thread.thread_id, prompt, timeout=25.0,
+            memory="Auto", llm_provider="anthropic", model_name="claude-sonnet-4-6",
         )
         result = _parse_dep_investigation_json(response.content)
         result["investigation_source"] = "backboard_ai"
@@ -564,14 +569,9 @@ Rules:
             client.create_thread(assistant_id),
             timeout=5.0,
         )
-        response = await asyncio.wait_for(
-            client.add_message(
-                thread_id=thread.thread_id,
-                content=prompt,
-                llm_provider="anthropic",
-                model_name="claude-sonnet-4-6",
-            ),
-            timeout=30.0,
+        response = await _add_message(
+            client, thread.thread_id, prompt, timeout=30.0,
+            llm_provider="anthropic", model_name="claude-sonnet-4-6",
         )
         return _parse_context_json(response.content)
     except (asyncio.TimeoutError, Exception) as e:
@@ -592,6 +592,122 @@ def _parse_exploitability_json(content: str) -> dict:
     except json.JSONDecodeError:
         pass
     return {"vulnerable_behavior_match": "insufficient_evidence"}
+
+
+def _parse_blast_radius_json(content: str) -> dict:
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        pass
+    try:
+        start = content.find("{")
+        end = content.rfind("}") + 1
+        if start != -1 and end > start:
+            return json.loads(content[start:end])
+    except json.JSONDecodeError:
+        pass
+    return dict(FALLBACK_BLAST_RADIUS)
+
+
+async def run_blast_radius_analysis(
+    repo: Repository,
+    alert: Alert,
+    usages: list[UsageLocation],
+    phase1_result: dict,
+    exploitability_context: Optional[dict],
+    db,
+) -> dict:
+    """
+    Narrow AI call: confirm scope_clarity and validate affected_surfaces.
+
+    Receives the deterministic Phase 1 blast radius result as grounding evidence.
+    AI only answers whether the scope assessment is clear and which surfaces are affected.
+    Uses the repository's existing Backboard assistant — no new assistant created.
+    No memory="Auto" — this is a computation step, not investigation memory.
+
+    Returns dict with scope_clarity and affected_surfaces on success,
+    or FALLBACK_BLAST_RADIUS on any failure.
+    """
+    if not settings.BACKBOARD_API_KEY:
+        return dict(FALLBACK_BLAST_RADIUS)
+
+    client = _get_client()
+    if not client:
+        return dict(FALLBACK_BLAST_RADIUS)
+
+    assistant_id = await ensure_repository_assistant(client, repo, db)
+    if not assistant_id:
+        return dict(FALLBACK_BLAST_RADIUS)
+
+    # Build usage summary for prompt
+    usage_lines = "\n".join(
+        f"  - {u.file_path}:{u.line_number} "
+        f"[{', '.join(u.context_tags or [])}]"
+        f"{' subsystems=' + str(u.subsystem_labels) if u.subsystem_labels else ''}"
+        for u in usages[:15]
+    ) or "  No usage locations found."
+
+    expl_summary = ""
+    if exploitability_context:
+        expl_summary = (
+            f"\nEXPLOITABILITY PRE-ASSESSMENT:\n"
+            f"  Verdict: {exploitability_context.get('exploitability', 'unknown')}\n"
+            f"  Evidence strength: {exploitability_context.get('evidence_strength', 'unknown')}\n"
+            f"  Detected functions: {exploitability_context.get('detected_functions') or 'none'}"
+        )
+
+    prompt = f"""You are reviewing the blast radius scope of a vulnerable dependency.
+
+PACKAGE: {alert.vuln_id}
+DETERMINISTIC PRE-ASSESSMENT:
+  Blast radius label: {phase1_result.get('blast_radius_label', 'unknown')}
+  Affected files: {phase1_result.get('affected_files', 0)}
+  Affected modules: {phase1_result.get('affected_modules', 0)}
+  Detected surfaces (from context tags): {phase1_result.get('affected_surfaces', [])}
+  Reason: {phase1_result.get('blast_radius_reason', '')}
+{expl_summary}
+
+USAGE LOCATIONS:
+{usage_lines}
+
+TASK: Assess the clarity of this scope estimate and confirm which security surfaces are exposed.
+
+Allowed surfaces: auth, payment, admin, crypto, secrets, execution, api, data, middleware
+scope_clarity values: high (clear, strong evidence), medium (partial evidence), low (no usage or fallback context only)
+
+Respond ONLY with valid JSON:
+
+{{
+  "scope_clarity": "high | medium | low",
+  "affected_surfaces": ["<surface1>", "..."],
+  "scope_reasoning": "one sentence referencing actual file paths or context tags"
+}}
+
+Rules:
+- Only include surfaces from the allowed list above — do NOT invent new ones
+- scope_clarity must align with the evidence quality above (good context tags + multiple modules = high)
+- If no usages exist, scope_clarity must be "low" and affected_surfaces must be []"""
+
+    try:
+        thread = await asyncio.wait_for(
+            client.create_thread(assistant_id),
+            timeout=5.0,
+        )
+        response = await _add_message(
+            client, thread.thread_id, prompt, timeout=20.0,
+            llm_provider="anthropic", model_name="claude-sonnet-4-6",
+        )
+        result = _parse_blast_radius_json(response.content)
+        # Validate scope_clarity
+        if result.get("scope_clarity") not in ("high", "medium", "low"):
+            result["scope_clarity"] = phase1_result.get("scope_clarity", "low")
+        # Validate affected_surfaces is a list
+        if not isinstance(result.get("affected_surfaces"), list):
+            result["affected_surfaces"] = phase1_result.get("affected_surfaces", [])
+        return result
+    except (asyncio.TimeoutError, Exception) as e:
+        logger.warning(f"Blast radius AI analysis failed for alert {alert.id}: {e}")
+        return dict(FALLBACK_BLAST_RADIUS)
 
 
 async def run_exploitability_analysis(
@@ -667,15 +783,9 @@ Rules:
             client.create_thread(assistant_id),
             timeout=5.0,
         )
-        response = await asyncio.wait_for(
-            client.add_message(
-                thread_id=thread.thread_id,
-                content=prompt,
-                memory="Auto",
-                llm_provider="anthropic",
-                model_name="claude-sonnet-4-6",
-            ),
-            timeout=20.0,
+        response = await _add_message(
+            client, thread.thread_id, prompt, timeout=20.0,
+            memory="Auto", llm_provider="anthropic", model_name="claude-sonnet-4-6",
         )
         data = _parse_exploitability_json(response.content)
         match = data.get("vulnerable_behavior_match", "insufficient_evidence")
@@ -685,3 +795,223 @@ Rules:
     except (asyncio.TimeoutError, Exception) as e:
         logger.warning(f"Exploitability analysis failed for alert {alert.id}: {e}")
         return "insufficient_evidence"
+
+
+def _parse_remediation_json(content: str) -> dict:
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        pass
+    try:
+        start = content.find("{")
+        end = content.rfind("}") + 1
+        if start != -1 and end > start:
+            return json.loads(content[start:end])
+    except json.JSONDecodeError:
+        pass
+    logger.warning("Failed to parse remediation JSON from Backboard response; using fallback")
+    return dict(FALLBACK_REMEDIATION)
+
+
+async def run_remediation_analysis(
+    repo: Repository,
+    alert: Alert,
+    dep_name: str,
+    dep_version: str,
+    ecosystem: str,
+    safe_version: Optional[str],
+    exploitability_result: Optional[dict],
+    blast_radius_result: Optional[dict],
+    confidence_result: Optional[dict],
+    prior_senior_fix: Optional[str],
+    db: Session,
+) -> dict:
+    """
+    AI-backed remediation recommendation for a single alert.
+
+    Consumes upstream evidence (exploitability, blast radius, confidence) plus any
+    prior senior-reviewed fix recalled from Backboard memory.
+
+    Returns structured dict with temporary_mitigation, permanent_fix_summary,
+    review_note, senior_review_urgency.
+
+    Uses the repository's existing main Backboard assistant.
+    memory="Auto" — findings persist so future scans recall this recommendation.
+    Falls back to FALLBACK_REMEDIATION on any failure.
+    """
+    if not settings.BACKBOARD_API_KEY:
+        return dict(FALLBACK_REMEDIATION)
+
+    client = _get_client()
+    if not client:
+        return dict(FALLBACK_REMEDIATION)
+
+    assistant_id = await ensure_repository_assistant(client, repo, db)
+    if not assistant_id:
+        return dict(FALLBACK_REMEDIATION)
+
+    # Build evidence sections
+    safe_ver_str = safe_version or "unknown — check OSV advisory"
+
+    expl_section = ""
+    if exploitability_result:
+        expl_section = (
+            f"\nEXPLOITABILITY ASSESSMENT:\n"
+            f"  Verdict: {exploitability_result.get('exploitability', 'unknown')}\n"
+            f"  Evidence strength: {exploitability_result.get('evidence_strength', 'unknown')}\n"
+            f"  Vulnerable behavior match: {exploitability_result.get('vulnerable_behavior_match', 'insufficient_evidence')}\n"
+            f"  Detected functions: {exploitability_result.get('detected_functions') or 'none'}\n"
+            f"  Reason: {exploitability_result.get('exploitability_reason', '')}"
+        )
+
+    br_section = ""
+    if blast_radius_result:
+        br_section = (
+            f"\nBLAST RADIUS:\n"
+            f"  Label: {blast_radius_result.get('blast_radius_label', 'unknown')}\n"
+            f"  Files: {blast_radius_result.get('affected_files', 0)}, "
+            f"Modules: {blast_radius_result.get('affected_modules', 0)}\n"
+            f"  Surfaces: {blast_radius_result.get('affected_surfaces', [])}\n"
+            f"  Scope clarity: {blast_radius_result.get('scope_clarity', 'low')}\n"
+            f"  Reason: {blast_radius_result.get('blast_radius_reason', '')}"
+        )
+
+    conf_section = ""
+    if confidence_result:
+        conf_section = (
+            f"\nCONFIDENCE:\n"
+            f"  Level: {confidence_result.get('confidence', 'unknown')} "
+            f"({confidence_result.get('confidence_percent', 'n/a')}%)\n"
+            f"  Reasons: {confidence_result.get('confidence_reasons', [])}"
+        )
+
+    prior_section = ""
+    if prior_senior_fix:
+        prior_section = (
+            f"\nPRIOR SENIOR-REVIEWED FIX (from repository memory):\n"
+            f"  {prior_senior_fix}\n"
+            f"  Use this as a professional baseline when formulating your recommendation."
+        )
+
+    prompt = f"""You are the remediation recommendation agent for a dependency security scanner.
+
+PACKAGE: {dep_name}@{dep_version} ({ecosystem})
+VULNERABILITY: {alert.vuln_id} — {alert.summary or 'No summary'}
+SEVERITY: {alert.severity}
+OSV SAFE VERSION: {safe_ver_str}
+{expl_section}
+{br_section}
+{conf_section}
+{prior_section}
+
+TASK: Recommend a conservative, review-friendly remediation for this vulnerability.
+
+Constraints:
+- temporary_mitigation must be an IMMEDIATE action a developer can take TODAY to reduce risk while preparing the upgrade
+- permanent_fix_summary must be specific to this package and vulnerability (not generic)
+- review_note must justify why a senior engineer should review this, referencing the evidence above
+- senior_review_urgency must reflect the actual exploitability and blast radius (not just severity)
+- Do NOT frame this as fully autonomous — always recommend senior review
+- OSV safe version is authoritative — do not suggest a lower version
+
+Respond ONLY with valid JSON:
+
+{{
+  "temporary_mitigation": "specific immediate action to reduce risk today (e.g. input validation, disable endpoint, feature flag, WAF rule, code-level workaround)",
+  "permanent_fix_summary": "specific upgrade plan referencing the package name and safe version",
+  "review_note": "one paragraph for the senior reviewer referencing exploitability evidence and blast radius",
+  "senior_review_urgency": "immediate | this-sprint | planned | low-priority"
+}}
+
+Rules:
+- temporary_mitigation must be actionable today, not 'upgrade the package' (that is the permanent fix)
+- senior_review_urgency = immediate if exploitability=likely OR blast_radius=subsystem OR behavior_match=confirmed
+- senior_review_urgency = this-sprint if exploitability=possible OR blast_radius=module
+- senior_review_urgency = planned if exploitability=unlikely OR blast_radius=isolated
+- senior_review_urgency = low-priority only if no usage found"""
+
+    try:
+        thread = await asyncio.wait_for(
+            client.create_thread(assistant_id),
+            timeout=5.0,
+        )
+        response = await _add_message(
+            client, thread.thread_id, prompt, timeout=30.0,
+            memory="Auto", llm_provider="anthropic", model_name="claude-sonnet-4-6",
+        )
+        result = _parse_remediation_json(response.content)
+
+        # Validate senior_review_urgency
+        valid_urgencies = {"immediate", "this-sprint", "planned", "low-priority"}
+        if result.get("senior_review_urgency") not in valid_urgencies:
+            result["senior_review_urgency"] = FALLBACK_REMEDIATION["senior_review_urgency"]
+
+        return result
+    except (asyncio.TimeoutError, Exception) as e:
+        logger.warning(f"Remediation analysis failed for alert {alert.id} ({dep_name}): {e}")
+        return dict(FALLBACK_REMEDIATION)
+
+
+async def store_senior_approved_fix(
+    repo: Repository,
+    dep_name: str,
+    vuln_id: str,
+    safe_version: Optional[str],
+    agent_temp_mitigation: str,
+    agent_permanent_fix: str,
+    senior_approved_fix: str,
+    rationale: str,
+    db: Session,
+) -> None:
+    """
+    Write a senior-reviewed final fix to Backboard memory.
+
+    Called from the finalize endpoint after a senior SWE approves a fix.
+    Stores a structured comparison so future scans on this repo can recall
+    the professional baseline when recommending remediations for similar issues.
+
+    memory="Auto" — Backboard indexes the approved pattern for future recall.
+    Graceful — never raises on failure.
+    """
+    if not settings.BACKBOARD_API_KEY:
+        return
+
+    client = _get_client()
+    if not client:
+        return
+
+    assistant_id = await ensure_repository_assistant(client, repo, db)
+    if not assistant_id:
+        return
+
+    from datetime import datetime as _dt
+    date_str = _dt.utcnow().strftime("%Y-%m-%d")
+    safe_ver_str = safe_version or "latest safe version per OSV"
+
+    summary = (
+        f"SENIOR-REVIEWED REMEDIATION — {dep_name} ({vuln_id}) — {date_str}\n"
+        f"Agent recommended (temporary): {agent_temp_mitigation}\n"
+        f"Agent recommended (permanent): {agent_permanent_fix}\n"
+        f"Senior approved fix: {senior_approved_fix}\n"
+        f"Rationale: {rationale}\n"
+        f"Accepted pattern: Upgrade {dep_name} to {safe_ver_str} with approach: {senior_approved_fix}\n"
+        f"Note: This approved fix is stored as reference for future similar vulnerabilities in this repository."
+    )
+
+    try:
+        thread = await asyncio.wait_for(
+            client.create_thread(assistant_id),
+            timeout=5.0,
+        )
+        await _add_message(
+            client, thread.thread_id, summary, timeout=20.0,
+            memory="Auto", llm_provider="anthropic", model_name="claude-sonnet-4-6",
+        )
+        logger.info(
+            f"[backboard_service] Senior-approved fix stored for {dep_name} ({vuln_id}) "
+            f"in repo {repo.id}"
+        )
+    except (asyncio.TimeoutError, Exception) as e:
+        logger.warning(
+            f"Failed to store senior-approved fix for {dep_name} ({vuln_id}): {e}"
+        )

@@ -65,7 +65,7 @@ def test_maximum_evidence_is_high():
     result = compute(usages, expl, br, "backboard_ai", "lodash")
 
     assert result["confidence_percent"] >= 70
-    assert result["confidence_label"] == "high"
+    assert result["confidence"] == "high"
     assert len(result["confidence_reasons"]) > 0
 
 
@@ -83,7 +83,7 @@ def test_no_import_fallback_is_low():
         dep_name="lodash",
     )
     assert result["confidence_percent"] == 0
-    assert result["confidence_label"] == "low"
+    assert result["confidence"] == "low"
     # Negative signals should appear in reasons
     assert any("not detected" in r or "unavailable" in r for r in result["confidence_reasons"])
 
@@ -102,7 +102,7 @@ def test_import_medium_no_function_ai_is_medium():
     result = compute(usages, expl, br, "backboard_ai", "axios")
 
     assert result["confidence_percent"] == 50
-    assert result["confidence_label"] == "medium"
+    assert result["confidence"] == "medium"
 
 
 # ---------------------------------------------------------------------------
@@ -119,7 +119,7 @@ def test_low_sensitivity_with_function_ai_is_medium():
     result = compute(usages, expl, br, "backboard_ai", "lodash")
 
     assert result["confidence_percent"] == 60
-    assert result["confidence_label"] == "medium"
+    assert result["confidence"] == "medium"
 
 
 # ---------------------------------------------------------------------------
@@ -161,7 +161,7 @@ def test_label_thresholds():
 
     # No import + fallback: 10-20-15 = -25 → 0 → low
     result_low = compute([], make_expl(), make_br(), "fallback", "lodash")
-    assert result_low["confidence_label"] == "low"
+    assert result_low["confidence"] == "low"
     assert result_low["confidence_percent"] <= 39
 
     # Import + MEDIUM + no fn + AI: 10+20+10+10 = 50 → medium
@@ -173,7 +173,7 @@ def test_label_thresholds():
         "axios",
     )
     assert 40 <= result_med["confidence_percent"] <= 69
-    assert result_med["confidence_label"] == "medium"
+    assert result_med["confidence"] == "medium"
 
     # Import + HIGH + fn + AI: 10+20+25+20+10 = 85 → high
     result_high = compute(
@@ -184,7 +184,7 @@ def test_label_thresholds():
         "lodash",
     )
     assert result_high["confidence_percent"] >= 70
-    assert result_high["confidence_label"] == "high"
+    assert result_high["confidence"] == "high"
 
 
 # ---------------------------------------------------------------------------
@@ -261,3 +261,136 @@ def test_wide_usage_adds_points():
     result_wide = compute(wide, expl, br, "backboard_ai", "lodash")
 
     assert result_wide["confidence_percent"] > result_narrow["confidence_percent"]
+
+
+# ---------------------------------------------------------------------------
+# Signal 8: scope_clarity
+# ---------------------------------------------------------------------------
+
+
+def _base_expl():
+    """Neutral exploitability result with no vulnerable_behavior_match."""
+    return make_expl("possible", "low", [])
+
+
+def test_scope_clarity_high_adds_10():
+    usages = [make_usage("src/auth/session.js", ["auth", "HIGH_SENSITIVITY"])]
+    br_no_clarity = make_br("isolated")
+    br_high = {**make_br("isolated"), "scope_clarity": "high"}
+
+    result_base = compute(usages, _base_expl(), br_no_clarity, "backboard_ai", "lodash")
+    result_high = compute(usages, _base_expl(), br_high, "backboard_ai", "lodash")
+
+    assert result_high["confidence_percent"] - result_base["confidence_percent"] == 10
+    assert any("Scope well-established" in r for r in result_high["confidence_reasons"])
+
+
+def test_scope_clarity_medium_adds_5():
+    usages = [make_usage("src/auth/session.js", ["auth", "HIGH_SENSITIVITY"])]
+    br_no_clarity = make_br("isolated")
+    br_medium = {**make_br("isolated"), "scope_clarity": "medium"}
+
+    result_base = compute(usages, _base_expl(), br_no_clarity, "backboard_ai", "lodash")
+    result_medium = compute(usages, _base_expl(), br_medium, "backboard_ai", "lodash")
+
+    assert result_medium["confidence_percent"] - result_base["confidence_percent"] == 5
+    assert any("partially established" in r for r in result_medium["confidence_reasons"])
+
+
+def test_scope_clarity_low_adds_nothing():
+    usages = [make_usage("src/auth/session.js", ["auth", "HIGH_SENSITIVITY"])]
+    br_no_clarity = make_br("isolated")
+    br_low = {**make_br("isolated"), "scope_clarity": "low"}
+
+    result_base = compute(usages, _base_expl(), br_no_clarity, "backboard_ai", "lodash")
+    result_low = compute(usages, _base_expl(), br_low, "backboard_ai", "lodash")
+
+    assert result_low["confidence_percent"] == result_base["confidence_percent"]
+
+
+def test_scope_clarity_missing_adds_nothing():
+    usages = [make_usage("src/auth/session.js", ["auth", "HIGH_SENSITIVITY"])]
+    br = make_br("isolated")   # no scope_clarity key
+
+    # Should not raise
+    result = compute(usages, _base_expl(), br, "backboard_ai", "lodash")
+    assert isinstance(result["confidence_percent"], int)
+
+
+# ---------------------------------------------------------------------------
+# Signal 9: vulnerable_behavior_match
+# ---------------------------------------------------------------------------
+
+
+def test_confirmed_match_adds_15():
+    usages = [make_usage("src/auth/session.js", ["auth", "HIGH_SENSITIVITY"])]
+    br = make_br("isolated")
+    expl_neutral = {**make_expl("possible", "low", []), "vulnerable_behavior_match": "insufficient_evidence"}
+    expl_confirmed = {**make_expl("possible", "low", []), "vulnerable_behavior_match": "confirmed"}
+
+    result_neutral = compute(usages, expl_neutral, br, "backboard_ai", "lodash")
+    result_confirmed = compute(usages, expl_confirmed, br, "backboard_ai", "lodash")
+
+    assert result_confirmed["confidence_percent"] - result_neutral["confidence_percent"] == 15
+    assert any("confirmed" in r for r in result_confirmed["confidence_reasons"])
+
+
+def test_unconfirmed_match_subtracts_10():
+    usages = [make_usage("src/auth/session.js", ["auth", "HIGH_SENSITIVITY"])]
+    br = make_br("isolated")
+    expl_neutral = {**make_expl("possible", "low", []), "vulnerable_behavior_match": "insufficient_evidence"}
+    expl_unconfirmed = {**make_expl("possible", "low", []), "vulnerable_behavior_match": "unconfirmed"}
+
+    result_neutral = compute(usages, expl_neutral, br, "backboard_ai", "lodash")
+    result_unconfirmed = compute(usages, expl_unconfirmed, br, "backboard_ai", "lodash")
+
+    assert result_neutral["confidence_percent"] - result_unconfirmed["confidence_percent"] == 10
+    assert any("could not confirm" in r for r in result_unconfirmed["confidence_reasons"])
+
+
+def test_insufficient_evidence_is_neutral():
+    usages = [make_usage("src/auth/session.js", ["auth", "HIGH_SENSITIVITY"])]
+    br = make_br("isolated")
+    expl_missing = make_expl("possible", "low", [])   # no key
+    expl_ie = {**make_expl("possible", "low", []), "vulnerable_behavior_match": "insufficient_evidence"}
+
+    result_missing = compute(usages, expl_missing, br, "backboard_ai", "lodash")
+    result_ie = compute(usages, expl_ie, br, "backboard_ai", "lodash")
+
+    assert result_missing["confidence_percent"] == result_ie["confidence_percent"]
+
+
+def test_vulnerable_behavior_match_missing_is_neutral():
+    usages = [make_usage("src/auth/session.js", ["auth", "HIGH_SENSITIVITY"])]
+    br = make_br("isolated")
+    expl = make_expl("possible", "low", [])   # no vulnerable_behavior_match key
+
+    # Should not raise
+    result = compute(usages, expl, br, "backboard_ai", "lodash")
+    assert isinstance(result["confidence_percent"], int)
+
+
+# ---------------------------------------------------------------------------
+# End-to-end scenario coverage
+# ---------------------------------------------------------------------------
+
+
+def test_scenario_all_negative_is_low():
+    # No import + fallback + unconfirmed = −20 −15 −10 = −45 → 0 → low
+    expl = {**make_expl("unlikely", "low", []), "vulnerable_behavior_match": "unconfirmed"}
+    result = compute([], expl, make_br("isolated"), "fallback", "lodash")
+    assert result["confidence_percent"] == 0
+    assert result["confidence"] == "low"
+
+
+def test_scenario_all_positive_clamped_to_100():
+    # Max positive: 10+20+25+20+5+10+10+10+15 = 125 → clamped 100
+    usages = [
+        make_usage(f"src/auth/file{i}.js", ["auth", "HIGH_SENSITIVITY"], "_.merge({}, x)")
+        for i in range(4)
+    ]
+    expl = {**make_expl("likely", "high", ["_.merge"]), "vulnerable_behavior_match": "confirmed"}
+    br = {**make_br("subsystem", 4, 2), "scope_clarity": "high"}
+    result = compute(usages, expl, br, "backboard_ai", "lodash")
+    assert result["confidence_percent"] == 100
+    assert result["confidence"] == "high"

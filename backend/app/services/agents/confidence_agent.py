@@ -2,7 +2,7 @@
 Confidence Agent
 ----------------
 Input:  UsageLocations + exploitability_result + blast_radius_result + analysis_source + dep_name
-Output: {confidence_percent: int, confidence_label: str, confidence_reasons: list[str]}
+Output: {confidence_percent: int, confidence: str, confidence_reasons: list[str]}
 
 Deterministic evidence-based scoring — no AI, no external calls.
 
@@ -48,7 +48,7 @@ def compute(
     Returns:
         {
             "confidence_percent": int (0-100),
-            "confidence_label": str ("low" | "medium" | "high"),
+            "confidence": str ("low" | "medium" | "high"),
             "confidence_reasons": list[str]
         }
     """
@@ -134,6 +134,26 @@ def compute(
         score -= 15
         reasons.append("AI unavailable — assessment based on static heuristics only (-15)")
 
+    # ── Signal 8: Scope clarity from blast radius agent ───────────────────
+    scope_clarity = blast_radius_result.get("scope_clarity")
+    if scope_clarity == "high":
+        score += 10
+        reasons.append("Scope well-established by AI-enriched context (+10)")
+    elif scope_clarity == "medium":
+        score += 5
+        reasons.append("Scope partially established by context evidence (+5)")
+    # scope_clarity == "low" or missing: no bonus, no penalty
+
+    # ── Signal 9: Backboard exploitability behavior match ─────────────────
+    behavior_match = exploitability_result.get("vulnerable_behavior_match")
+    if behavior_match == "confirmed":
+        score += 15
+        reasons.append("Backboard confirmed vulnerable behavior match (+15)")
+    elif behavior_match == "unconfirmed":
+        score -= 10
+        reasons.append("Backboard could not confirm vulnerable behavior match (-10)")
+    # "insufficient_evidence" or missing: neutral
+
     # ── Clamp and label ───────────────────────────────────────────────────
     confidence_percent = max(0, min(100, score))
 
@@ -146,6 +166,6 @@ def compute(
 
     return {
         "confidence_percent": confidence_percent,
-        "confidence_label": label,
+        "confidence": label,
         "confidence_reasons": reasons,
     }

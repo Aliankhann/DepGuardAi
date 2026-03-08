@@ -42,6 +42,8 @@ class AnalysisResponse(BaseModel):
     exploitability_reason: Optional[str]
     detected_functions: Optional[list[str]]
     blast_radius_label: Optional[str]     # "isolated" | "module" | "subsystem" (deterministic)
+    affected_surfaces: Optional[list[str]] = None  # security surfaces exposed (e.g. ["auth", "api"])
+    scope_clarity: Optional[str] = None           # "high" | "medium" | "low"
     confidence_percent: Optional[int]     # 0-100 deterministic evidence score
     confidence_reasons: Optional[list[str]]  # which signals contributed
 

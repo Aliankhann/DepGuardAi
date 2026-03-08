@@ -27,6 +27,8 @@ class Analysis(Base):
     exploitability_reason = Column(String, nullable=True)    # human-readable explanation of the verdict
     detected_functions = Column(JSON, nullable=True)         # list[str] of dangerous function patterns found in snippets
     blast_radius_label = Column(String, nullable=True)       # "isolated" | "module" | "subsystem" (deterministic)
+    affected_surfaces = Column(JSON, nullable=True)          # list[str] of security surface labels (e.g. ["auth", "api"])
+    scope_clarity = Column(String, nullable=True)            # "high" | "medium" | "low" — confidence in scope estimate
     confidence_percent = Column(Integer, nullable=True)      # 0-100 deterministic evidence score
     confidence_reasons = Column(JSON, nullable=True)         # list[str] of contributing signals
     created_at = Column(DateTime, default=datetime.utcnow)
