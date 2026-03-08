@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.auth import verify_token
 from app.db import get_db
 from app.models.alert import Alert
 from app.models.analysis import Analysis
@@ -12,7 +13,7 @@ from app.models.usage import UsageLocation
 from app.schemas.repository import RepositoryCreate, RepositoryResponse
 from app.schemas.scan import ScanRunResponse
 
-router = APIRouter(prefix="/repos", tags=["repos"])
+router = APIRouter(prefix="/repos", tags=["repos"], dependencies=[Depends(verify_token)])
 
 
 @router.post("", response_model=RepositoryResponse, status_code=201)

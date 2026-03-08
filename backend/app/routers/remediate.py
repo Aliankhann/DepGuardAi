@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.auth import verify_token
 from app.db import get_db
 from app.models.alert import Alert
 from app.models.dependency import Dependency
@@ -10,7 +11,7 @@ from app.models.scan_run import ScanRun
 from app.schemas.remediation import FinalizeRemediationRequest, RemediationResponse
 from app.services import backboard_service
 
-router = APIRouter(tags=["remediation"])
+router = APIRouter(tags=["remediation"], dependencies=[Depends(verify_token)])
 
 
 @router.get("/alerts/{alert_id}/remediation", response_model=RemediationResponse)

@@ -1,19 +1,17 @@
-// TypeScript API types matching DepGuard backend schema (skills/schema.md)
-
 export interface Repository {
   id: number;
   name: string;
-  path: string;
-  ecosystem: string;
-  language: string;
-  backboard_assistant_id?: string | null;
+  local_path?: string | null;
+  repo_url?: string | null;
+  ecosystem: string | null;
+  language: string | null;
   created_at: string;
 }
 
 export interface ScanRun {
   id: number;
   repo_id: number;
-  status: "pending" | "scanning" | "analyzing" | "complete" | "failed";
+  status: string;
   current_agent: string | null;
   alert_count: number;
   started_at: string;
@@ -28,13 +26,15 @@ export interface Dependency {
   ecosystem: string;
 }
 
-export interface Alert {
+export interface AlertSummary {
   id: number;
   vuln_id: string;
-  severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  severity: string;
   summary: string;
-  dependency: Dependency;
-  usage_location_count?: number;
+  dependency_name: string;
+  dependency_version: string;
+  usage_count: number;
+  risk_level: string | null;
 }
 
 export interface UsageLocation {
@@ -42,38 +42,18 @@ export interface UsageLocation {
   file_path: string;
   line_number: number;
   snippet: string;
-  import_type: "esm" | "cjs" | "symbol" | "python";
+  import_type: string;
   context_tags: string[];
-  // AI-enriched context fields — null in fallback mode
-  sensitivity_level: string | null;
-  sensitive_surface_reason: string | null;
-  subsystem_labels: string[] | null;
-  user_input_proximity: string | null;
 }
 
 export interface Analysis {
   id: number;
-  risk_level: "low" | "medium" | "high" | "critical";
-  confidence: "low" | "medium" | "high";
+  risk_level: string;
+  confidence: string;
   reasoning: string;
   business_impact: string;
   recommended_fix: string;
-  urgency: "immediate" | "this-sprint" | "planned" | "low-priority" | null;
-  analysis_source: "backboard_ai" | "fallback";
-  backboard_thread_id: string | null;
-  exploitability_score: number | null;   // 0-100
-  confidence_score: number | null;       // 0-100
-  blast_radius: string | null;
-  temp_mitigation: string | null;
-  exploitability: "likely" | "possible" | "unlikely" | null;
-  evidence_strength: "high" | "medium" | "low" | null;
-  exploitability_reason: string | null;
-  detected_functions: string[] | null;
-  blast_radius_label: "isolated" | "module" | "subsystem" | null;
-  affected_surfaces: string[] | null;
-  scope_clarity: "high" | "medium" | "low" | null;
-  confidence_percent: number | null;     // 0-100
-  confidence_reasons: string[] | null;
+  backboard_thread_id?: string | null;
 }
 
 export interface Remediation {
@@ -81,15 +61,13 @@ export interface Remediation {
   safe_version: string | null;
   install_command: string;
   checklist: string[];
-  created_at: string;
+  temporary_mitigation?: string | null;
 }
 
 export interface AlertDetail {
   id: number;
-  scan_id: number;
-  repo_id: number;
   vuln_id: string;
-  severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  severity: string;
   summary: string;
   dependency_name: string;
   dependency_version: string;
@@ -98,5 +76,4 @@ export interface AlertDetail {
   usage_locations: UsageLocation[];
   analysis: Analysis | null;
   remediation: Remediation | null;
-  dependency_investigation: Record<string, unknown> | null;
 }

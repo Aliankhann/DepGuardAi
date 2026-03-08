@@ -4,6 +4,7 @@ import logging
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.auth import verify_token
 from app.db import SessionLocal, get_db
 from app.models.alert import Alert
 from app.models.analysis import Analysis
@@ -15,7 +16,7 @@ from app.schemas.scan import ScanRunResponse, ScanStatusResponse, ScanVerifyResp
 from app.services.agent_orchestrator import run_pipeline
 
 logger = logging.getLogger(__name__)
-router = APIRouter(tags=["scans"])
+router = APIRouter(tags=["scans"], dependencies=[Depends(verify_token)])
 
 
 def _run_pipeline_background(scan_id: int) -> None:
