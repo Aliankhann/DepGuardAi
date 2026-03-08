@@ -8,6 +8,8 @@ import Dashboard from "./pages/Dashboard";
 import RepoDetail from "./pages/RepoDetail";
 import AlertDetail from "./pages/AlertDetail";
 import NotFound from "./pages/NotFound";
+import { Auth0ProviderWithNavigate } from "./components/auth/Auth0ProviderWithNavigate";
+import { AuthenticationGuard } from "./components/auth/AuthenticationGuard";
 
 const queryClient = new QueryClient();
 
@@ -17,14 +19,16 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Index />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/repos/:repoId" element={<RepoDetail />} />
-          <Route path="/alerts/:alertId" element={<AlertDetail />} />
-          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-          <Route path="*" element={<NotFound />} />
-        </Routes>
+        <Auth0ProviderWithNavigate>
+          <Routes>
+            <Route path="/" element={<Index />} />
+            <Route path="/dashboard" element={<AuthenticationGuard component={Dashboard} />} />
+            <Route path="/repos/:repoId" element={<AuthenticationGuard component={RepoDetail} />} />
+            <Route path="/alerts/:alertId" element={<AuthenticationGuard component={AlertDetail} />} />
+            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </Auth0ProviderWithNavigate>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
