@@ -3,6 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from app.core.auth import verify_token
 from app.db import get_db
 from app.models.alert import Alert
 from app.models.analysis import Analysis
@@ -18,7 +19,7 @@ from app.schemas.alert import (
 )
 from app.schemas.remediation import RemediationResponse
 
-router = APIRouter(tags=["alerts"])
+router = APIRouter(tags=["alerts"], dependencies=[Depends(verify_token)])
 
 
 def _build_summary(alert: Alert, db: Session) -> AlertSummary:
