@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.auth import verify_token
@@ -86,24 +87,47 @@ async def verify_scan(scan_id: int, db: Session = Depends(get_db)):
     alerts_with_usage = 0
     alerts_without_usage = 0
 
-    for alert in alerts:
-        analysis = db.query(Analysis).filter(Analysis.alert_id == alert.id).first()
-        if not analysis:
-            alerts_missing_analysis += 1
-        elif analysis.analysis_source == "backboard_ai":
-            alerts_with_ai += 1
-        else:
-            alerts_with_fallback += 1
+    if total > 0:
+        alert_ids = [a.id for a in alerts]
 
-        has_remediation = db.query(Remediation).filter(Remediation.alert_id == alert.id).first()
-        if not has_remediation:
-            alerts_missing_remediation += 1
+        # Batch fetch analyses and remediations — 2 queries instead of 2×N
+        analyses: dict[int, Analysis] = {
+            an.alert_id: an
+            for an in db.query(Analysis).filter(Analysis.alert_id.in_(alert_ids)).all()
+        }
+        remediation_ids: set[int] = {
+            r.alert_id
+            for r in db.query(Remediation.alert_id)
+            .filter(Remediation.alert_id.in_(alert_ids))
+            .all()
+        }
+        # Usage counts per alert — 1 query with GROUP BY instead of N COUNT queries
+        usage_counts: dict[int, int] = {
+            alert_id: count
+            for alert_id, count in db.query(
+                UsageLocation.alert_id, func.count(UsageLocation.id)
+            )
+            .filter(UsageLocation.alert_id.in_(alert_ids))
+            .group_by(UsageLocation.alert_id)
+            .all()
+        }
 
-        usage_count = db.query(UsageLocation).filter(UsageLocation.alert_id == alert.id).count()
-        if usage_count > 0:
-            alerts_with_usage += 1
-        else:
-            alerts_without_usage += 1
+        for alert in alerts:
+            analysis = analyses.get(alert.id)
+            if not analysis:
+                alerts_missing_analysis += 1
+            elif analysis.analysis_source == "backboard_ai":
+                alerts_with_ai += 1
+            else:
+                alerts_with_fallback += 1
+
+            if alert.id not in remediation_ids:
+                alerts_missing_remediation += 1
+
+            if usage_counts.get(alert.id, 0) > 0:
+                alerts_with_usage += 1
+            else:
+                alerts_without_usage += 1
 
     duration = None
     if scan.completed_at and scan.started_at:
