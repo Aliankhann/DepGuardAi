@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Shield, Plus, ScanLine, FolderGit2, AlertTriangle, CheckCircle, Clock } from "lucide-react";
+import { useAuth0 } from "@auth0/auth0-react";
 import { useRepos } from "@/hooks/useRepos";
 import { useScan } from "@/hooks/useScan";
 
@@ -22,6 +23,24 @@ const Dashboard = () => {
       setNewPath("");
     } catch (err) {
       console.error("Failed to register repo", err);
+    }
+  };
+
+  const { getAccessTokenSilently } = useAuth0();
+  
+  const handleSeed = async () => {
+    try {
+      const token = await getAccessTokenSilently();
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/demo/seed`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.repo_id) {
+        window.location.reload(); // Refresh to show the new repo
+      }
+    } catch (err) {
+      console.error("Failed to seed demo", err);
     }
   };
 
@@ -75,12 +94,23 @@ const Dashboard = () => {
           </div>
         )}
 
-        {/* Register Form */}
         <div className="mb-12">
-          <h2 className="font-mono text-2xl font-bold mb-6 flex items-center gap-2">
-            <Plus className="w-5 h-5 text-primary" />
-            Register Repository
-          </h2>
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="font-mono text-2xl font-bold flex items-center gap-2">
+              <Plus className="w-5 h-5 text-primary" />
+              Register Repository
+            </h2>
+            <button
+              onClick={handleSeed}
+              className="text-xs font-mono px-3 py-1.5 border border-primary/30 bg-primary/10 text-primary rounded-md hover:bg-primary/20 transition-all flex items-center gap-2"
+            >
+              <Plus className="w-3 h-3" />
+              Seed Demo Repo
+            </button>
+          </div>
+          <p className="text-sm text-muted-foreground font-mono mb-4 text-orange-400/80">
+            Note: For the hackathon, please provide an <strong>absolute local path</strong> to a cloned repository.
+          </p>
           <form onSubmit={handleRegister} className="flex flex-col sm:flex-row gap-4">
             <input
               type="text"
