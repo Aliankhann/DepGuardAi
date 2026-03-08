@@ -1,6 +1,8 @@
+from collections import defaultdict
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.auth import verify_token
@@ -20,25 +22,6 @@ from app.schemas.alert import (
 from app.schemas.remediation import RemediationResponse
 
 router = APIRouter(tags=["alerts"], dependencies=[Depends(verify_token)])
-
-
-def _build_summary(alert: Alert, db: Session) -> AlertSummary:
-    dep = db.get(Dependency, alert.dependency_id)
-    usage_count = (
-        db.query(UsageLocation).filter(UsageLocation.alert_id == alert.id).count()
-    )
-    analysis = db.query(Analysis).filter(Analysis.alert_id == alert.id).first()
-
-    return AlertSummary(
-        id=alert.id,
-        vuln_id=alert.vuln_id,
-        severity=alert.severity,
-        summary=alert.summary,
-        dependency_name=dep.name if dep else "unknown",
-        dependency_version=dep.version if dep else "unknown",
-        usage_count=usage_count,
-        risk_level=analysis.risk_level if analysis else None,
-    )
 
 
 @router.get("/repos/{repo_id}/alerts", response_model=list[AlertSummary])
@@ -64,7 +47,48 @@ async def list_alerts(
         target_scan_id = latest.id
 
     alerts = db.query(Alert).filter(Alert.scan_id == target_scan_id).all()
-    return [_build_summary(a, db) for a in alerts]
+    if not alerts:
+        return []
+
+    alert_ids = [a.id for a in alerts]
+    dep_ids = list({a.dependency_id for a in alerts})
+
+    # Batch fetch all child data in 3 queries instead of 3 per alert.
+    deps: dict[int, Dependency] = {
+        d.id: d
+        for d in db.query(Dependency).filter(Dependency.id.in_(dep_ids)).all()
+    }
+    analyses: dict[int, Analysis] = {
+        an.alert_id: an
+        for an in db.query(Analysis).filter(Analysis.alert_id.in_(alert_ids)).all()
+    }
+    usage_counts: dict[int, int] = {
+        alert_id: count
+        for alert_id, count in db.query(
+            UsageLocation.alert_id, func.count(UsageLocation.id)
+        )
+        .filter(UsageLocation.alert_id.in_(alert_ids))
+        .group_by(UsageLocation.alert_id)
+        .all()
+    }
+
+    result = []
+    for alert in alerts:
+        dep = deps.get(alert.dependency_id)
+        analysis = analyses.get(alert.id)
+        result.append(
+            AlertSummary(
+                id=alert.id,
+                vuln_id=alert.vuln_id,
+                severity=alert.severity,
+                summary=alert.summary,
+                dependency_name=dep.name if dep else "unknown",
+                dependency_version=dep.version if dep else "unknown",
+                usage_count=usage_counts.get(alert.id, 0),
+                risk_level=analysis.risk_level if analysis else None,
+            )
+        )
+    return result
 
 
 @router.get("/alerts/{alert_id}", response_model=AlertDetail)

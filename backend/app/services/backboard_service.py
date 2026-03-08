@@ -58,6 +58,28 @@ FALLBACK_ANALYSIS = {
 }
 
 
+def _parse_json(content: str, fallback: dict) -> dict:
+    """Parse a JSON dict from a Backboard response string.
+
+    Tries a strict parse first. On failure, attempts to extract the first
+    {...} block from mixed content (e.g. prose + JSON). Returns fallback on
+    any parse error. All 6 Backboard response parsers use this helper.
+    """
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        pass
+    try:
+        start = content.find("{")
+        end = content.rfind("}") + 1
+        if start != -1 and end > start:
+            return json.loads(content[start:end])
+    except json.JSONDecodeError:
+        pass
+    logger.warning("Failed to parse JSON from Backboard response; using fallback")
+    return fallback
+
+
 def _get_client():
     if not settings.BACKBOARD_API_KEY:
         return None

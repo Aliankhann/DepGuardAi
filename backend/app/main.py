@@ -24,6 +24,40 @@ _BACKEND_ROOT = Path(__file__).parent.parent
 _ALEMBIC_CFG_PATH = _BACKEND_ROOT / "alembic.ini"
 
 
+def _recover_orphaned_scans() -> None:
+    """Mark any in-progress scans as failed on startup.
+
+    If the server crashes or is killed while a scan is running, the ScanRun
+    stays stuck in 'pending', 'scanning', or 'analyzing' forever. On the next
+    startup we detect these and mark them failed so the frontend shows a clear
+    error state instead of an endless spinner.
+    """
+    from datetime import datetime
+    from app.db import SessionLocal
+    from app.models.scan_run import ScanRun
+
+    db = SessionLocal()
+    try:
+        stuck = (
+            db.query(ScanRun)
+            .filter(ScanRun.status.in_(["pending", "scanning", "analyzing"]))
+            .all()
+        )
+        if stuck:
+            logger.warning(
+                "Found %d orphaned scan(s) from previous process — marking as failed", len(stuck)
+            )
+            for scan in stuck:
+                scan.status = "failed"
+                scan.error_message = "Server restarted during scan — re-run to retry."
+                scan.completed_at = datetime.utcnow()
+            db.commit()
+    except Exception as e:
+        logger.error("Failed to recover orphaned scans: %s", e)
+    finally:
+        db.close()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     alembic_cfg = Config(str(_ALEMBIC_CFG_PATH))
@@ -31,6 +65,7 @@ async def lifespan(app: FastAPI):
     alembic_cfg.set_main_option("script_location", str(_BACKEND_ROOT / "alembic"))
     command.upgrade(alembic_cfg, "head")
     logger.info("Database schema at head")
+    _recover_orphaned_scans()
     yield
 
 
