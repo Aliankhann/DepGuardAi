@@ -15,7 +15,7 @@ const steps = [
   {
     icon: Brain,
     title: "Investigate",
-    description: "AI agents analyze execution context to determine real exploitability.",
+    description: "AI + rule agents score exploitability, blast radius, confidence, and urgency.",
   },
   {
     icon: ShieldCheck,

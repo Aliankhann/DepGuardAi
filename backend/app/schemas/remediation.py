@@ -22,3 +22,11 @@ class RemediationResponse(BaseModel):
 class FinalizeRemediationRequest(BaseModel):
     senior_approved_fix: str
     rationale: str
+
+
+class ApplyFixResponse(BaseModel):
+    applied: bool
+    file_changed: Optional[str]
+    old_line: Optional[str]
+    new_line: Optional[str]
+    message: str

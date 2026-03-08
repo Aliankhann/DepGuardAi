@@ -1,2 +1,95 @@
+# ===========================
+# Python / Backend
+# ===========================
 __pycache__/
-*.pyc
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# mypy / ruff / pyright
+.mypy_cache/
+.ruff_cache/
+pyrightconfig.json
+
+# Alembic
+# Keep migrations tracked — only ignore local override files
+alembic.ini.local
+
+# ===========================
+# Database
+# ===========================
+*.db
+*.sqlite
+*.sqlite3
+
+# ===========================
+# Environment Variables
+# ===========================
+.env
+.env.*
+!.env.example
+
+# ===========================
+# Frontend / Node
+# ===========================
+node_modules/
+dist/
+.cache/
+*.tsbuildinfo
+
+# Vite
+frontend/dist/
+frontend/.vite/
+
+# ===========================
+# OS & Editor
+# ===========================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ===========================
+# Logs & Temp
+# ===========================
+*.log
+logs/
+tmp/
+temp/
+.tmp/
+
+# ===========================
+# Security — Never Commit
+# ===========================
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+credentials/

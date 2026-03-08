@@ -62,10 +62,14 @@ const Dashboard = () => {
     if (!agent) return "Starting scan...";
     const labels: Record<string, string> = {
       scan_agent: "Scanning dependencies...",
+      depvuln_agent: "Analyzing vulnerability intelligence...",
       code_agent: "Mapping code usage...",
       context_agent: "Classifying context...",
+      exploitability_agent: "Assessing exploitability...",
+      blast_radius_agent: "Estimating blast radius...",
       risk_agent: "Analyzing with AI...",
       fix_agent: "Generating fixes...",
+      memory_agent: "Saving investigation memory...",
     };
     return labels[agent] || "Processing...";
   };

@@ -54,6 +54,29 @@ export interface Analysis {
   business_impact: string;
   recommended_fix: string;
   backboard_thread_id?: string | null;
+  urgency?: string | null;
+  analysis_source?: string;
+  exploitability_score?: number | null;
+  confidence_score?: number | null;
+  blast_radius?: string | null;
+  temp_mitigation?: string | null;
+  exploitability?: string | null;
+  evidence_strength?: string | null;
+  exploitability_reason?: string | null;
+  detected_functions?: string[] | null;
+  blast_radius_label?: string | null;
+  affected_surfaces?: string[] | null;
+  scope_clarity?: string | null;
+  confidence_percent?: number | null;
+  confidence_reasons?: string[] | null;
+}
+
+export interface ApplyFixResponse {
+  applied: boolean;
+  file_changed: string | null;
+  old_line: string | null;
+  new_line: string | null;
+  message: string;
 }
 
 export interface Remediation {
@@ -62,6 +85,9 @@ export interface Remediation {
   install_command: string;
   checklist: string[];
   temporary_mitigation?: string | null;
+  permanent_fix_summary?: string | null;
+  review_note?: string | null;
+  senior_review_urgency?: string | null;
 }
 
 export interface AlertDetail {

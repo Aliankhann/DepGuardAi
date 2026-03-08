@@ -1,4 +1,4 @@
-import { AlertSummary, AlertDetail, Repository, ScanRun, Remediation } from '../types/api';
+import { AlertSummary, AlertDetail, ApplyFixResponse, Repository, ScanRun, Remediation } from '../types/api';
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
 
@@ -53,4 +53,8 @@ export async function fetchAlertDetail(token: string, alertId: number): Promise<
 
 export async function fetchRemediation(token: string, alertId: number): Promise<Remediation> {
   return fetchWithAuth(`/alerts/${alertId}/remediation`, token);
+}
+
+export async function applyFix(token: string, alertId: number): Promise<ApplyFixResponse> {
+  return fetchWithAuth(`/alerts/${alertId}/remediation/apply`, token, { method: 'POST' });
 }
