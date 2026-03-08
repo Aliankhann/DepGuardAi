@@ -15,5 +15,7 @@ class Analysis(Base):
     reasoning = Column(String, nullable=False)
     business_impact = Column(String, nullable=False)
     recommended_fix = Column(String, nullable=False)
+    urgency = Column(String, nullable=True)   # immediate | this-sprint | planned | low-priority
     backboard_thread_id = Column(String, nullable=True)  # null = fallback used
+    analysis_source = Column(String, nullable=False, default="backboard_ai")  # "backboard_ai" | "fallback"
     created_at = Column(DateTime, default=datetime.utcnow)

@@ -11,7 +11,7 @@ class UsageLocationResponse(BaseModel):
     line_number: int
     snippet: str
     import_type: str
-    context_tags: list
+    context_tags: list[str]
 
 
 class AnalysisResponse(BaseModel):
@@ -23,6 +23,8 @@ class AnalysisResponse(BaseModel):
     reasoning: str
     business_impact: str
     recommended_fix: str
+    urgency: Optional[str]  # "immediate" | "this-sprint" | "planned" | "low-priority"
+    analysis_source: str    # "backboard_ai" | "fallback"
     backboard_thread_id: Optional[str]
 
 
