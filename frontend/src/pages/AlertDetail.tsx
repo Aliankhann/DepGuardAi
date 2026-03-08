@@ -6,11 +6,17 @@ import type { AlertDetail as AlertDetailType } from "@/types/api";
 // Hardcoded placeholder alert detail
 const PLACEHOLDER: AlertDetailType = {
   id: 1,
+  scan_id: 1,
+  repo_id: 1,
   vuln_id: "GHSA-35jh-r3h4-6jhm",
   severity: "CRITICAL",
   summary:
     "Prototype Pollution in lodash — The functions _.merge, _.mergeWith, _.defaultsDeep, and _.set allow modification of Object.prototype properties when processing untrusted input, enabling property injection attacks.",
-  dependency: { id: 1, name: "lodash", version: "4.17.4", ecosystem: "npm" },
+  dependency_name: "lodash",
+  dependency_version: "4.17.4",
+  vuln_aliases: ["CVE-2019-10744"],
+  references: ["https://nvd.nist.gov/vuln/detail/CVE-2019-10744"],
+  dependency_investigation: null,
   usage_locations: [
     {
       id: 1,
@@ -19,6 +25,10 @@ const PLACEHOLDER: AlertDetailType = {
       snippet: `const _ = require('lodash');\n\nconst merged = _.merge({}, userInput);\nconsole.log(merged);`,
       import_type: "cjs",
       context_tags: ["util", "LOW_SENSITIVITY"],
+      sensitivity_level: null,
+      sensitive_surface_reason: null,
+      subsystem_labels: null,
+      user_input_proximity: null,
     },
     {
       id: 2,
@@ -27,6 +37,10 @@ const PLACEHOLDER: AlertDetailType = {
       snippet: `import _ from 'lodash';\n\n// Deep merge utility`,
       import_type: "esm",
       context_tags: ["util", "LOW_SENSITIVITY"],
+      sensitivity_level: null,
+      sensitive_surface_reason: null,
+      subsystem_labels: null,
+      user_input_proximity: null,
     },
     {
       id: 3,
@@ -35,6 +49,10 @@ const PLACEHOLDER: AlertDetailType = {
       snippet: `const config = require('./config');\nconst _ = require('lodash');\n\n_.set(sessionData, path, value);`,
       import_type: "symbol",
       context_tags: ["auth", "HIGH_SENSITIVITY"],
+      sensitivity_level: "HIGH",
+      sensitive_surface_reason: "Used within authentication session handling",
+      subsystem_labels: ["auth"],
+      user_input_proximity: "direct",
     },
   ],
   analysis: {
@@ -47,8 +65,22 @@ const PLACEHOLDER: AlertDetailType = {
       "An attacker can inject arbitrary properties into JavaScript objects, potentially enabling: 1) Privilege escalation through session manipulation (auth context), 2) Denial of service by corrupting shared prototypes, 3) Remote code execution in certain Node.js configurations.",
     recommended_fix:
       "Upgrade lodash to >=4.17.21 which patches the prototype pollution vulnerability. Additionally, validate and sanitize the 'path' parameter in _.set() calls within the auth module.",
+    urgency: "immediate",
+    analysis_source: "backboard_ai",
     backboard_thread_id: "thread_abc123",
-    created_at: "2026-03-05T09:01:10Z",
+    exploitability_score: 82,
+    confidence_score: 88,
+    blast_radius: "module",
+    temp_mitigation: "Sanitize all inputs before passing to _.merge() or _.set().",
+    exploitability: "likely",
+    evidence_strength: "high",
+    exploitability_reason: "_.merge() called with direct user input in utility and auth contexts.",
+    detected_functions: ["_.merge", "_.set"],
+    blast_radius_label: "module",
+    affected_surfaces: ["auth"],
+    scope_clarity: "high",
+    confidence_percent: 78,
+    confidence_reasons: ["High exploitability evidence", "Auth surface detected", "AI-enriched context available"],
   },
   remediation: {
     id: 1,
@@ -98,7 +130,7 @@ const AlertDetail = () => {
   const alert = PLACEHOLDER;
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(alert.remediation.install_command);
+    navigator.clipboard.writeText(alert.remediation?.install_command ?? "");
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -130,7 +162,7 @@ const AlertDetail = () => {
               <div className="flex items-center gap-3 mb-2">
                 <ShieldAlert className="w-6 h-6 text-red-400" />
                 <h1 className="font-mono text-2xl font-bold text-foreground">
-                  {alert.dependency.name}@{alert.dependency.version}
+                  {alert.dependency_name}@{alert.dependency_version}
                 </h1>
               </div>
               <p className="font-mono text-sm text-muted-foreground">{alert.vuln_id}</p>
@@ -187,7 +219,7 @@ const AlertDetail = () => {
           <h2 className="font-mono text-lg font-semibold mb-4 flex items-center gap-2">
             <Brain className="w-5 h-5 text-primary" />
             AI Investigation
-            {alert.analysis.backboard_thread_id ? (
+            {alert.analysis?.backboard_thread_id ? (
               <span className="ml-2 px-2 py-0.5 rounded text-xs font-mono bg-primary/10 text-primary border border-primary/20">
                 Backboard AI
               </span>
@@ -202,15 +234,15 @@ const AlertDetail = () => {
             <div className="flex items-center gap-3">
               <span className="font-mono text-sm text-muted-foreground">Risk Level:</span>
               <span
-                className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-mono font-semibold border uppercase ${RISK_STYLES[alert.analysis.risk_level]}`}
+                className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-mono font-semibold border uppercase ${RISK_STYLES[alert.analysis?.risk_level ?? ""]}`}
               >
-                {alert.analysis.risk_level}
+                {alert.analysis?.risk_level}
               </span>
             </div>
             <div className="flex items-center gap-3">
               <span className="font-mono text-sm text-muted-foreground">Confidence:</span>
               <span className="font-mono text-sm text-foreground font-semibold capitalize">
-                {alert.analysis.confidence}
+                {alert.analysis?.confidence}
               </span>
             </div>
           </div>
@@ -218,15 +250,15 @@ const AlertDetail = () => {
           <div className="space-y-4">
             <div>
               <h4 className="font-mono text-sm font-semibold text-muted-foreground mb-2">Reasoning</h4>
-              <p className="text-sm text-foreground leading-relaxed">{alert.analysis.reasoning}</p>
+              <p className="text-sm text-foreground leading-relaxed">{alert.analysis?.reasoning}</p>
             </div>
             <div>
               <h4 className="font-mono text-sm font-semibold text-muted-foreground mb-2">Business Impact</h4>
-              <p className="text-sm text-foreground leading-relaxed">{alert.analysis.business_impact}</p>
+              <p className="text-sm text-foreground leading-relaxed">{alert.analysis?.business_impact}</p>
             </div>
             <div>
               <h4 className="font-mono text-sm font-semibold text-muted-foreground mb-2">Recommended Fix</h4>
-              <p className="text-sm text-foreground leading-relaxed">{alert.analysis.recommended_fix}</p>
+              <p className="text-sm text-foreground leading-relaxed">{alert.analysis?.recommended_fix}</p>
             </div>
           </div>
         </div>
@@ -238,7 +270,7 @@ const AlertDetail = () => {
             Remediation
           </h2>
 
-          {alert.remediation.safe_version && (
+          {alert.remediation?.safe_version && (
             <p className="font-mono text-sm text-muted-foreground mb-3">
               Safe version: <span className="text-primary font-semibold">{alert.remediation.safe_version}</span>
             </p>
@@ -246,7 +278,7 @@ const AlertDetail = () => {
 
           {/* Install command */}
           <div className="relative rounded-md border border-border bg-secondary/30 mb-6">
-            <pre className="p-4 font-mono text-sm text-primary pr-16">{alert.remediation.install_command}</pre>
+            <pre className="p-4 font-mono text-sm text-primary pr-16">{alert.remediation?.install_command}</pre>
             <button
               onClick={handleCopy}
               className="absolute top-3 right-3 p-2 rounded-md hover:bg-secondary transition-colors"
@@ -263,7 +295,7 @@ const AlertDetail = () => {
           {/* Checklist */}
           <h4 className="font-mono text-sm font-semibold text-muted-foreground mb-3">Verification Checklist</h4>
           <ul className="space-y-2">
-            {alert.remediation.checklist.map((item, i) => (
+            {(alert.remediation?.checklist ?? []).map((item, i) => (
               <li key={i} className="flex items-start gap-3">
                 <div className="mt-0.5 w-4 h-4 rounded border border-border bg-secondary shrink-0" />
                 <span className="text-sm text-foreground">{item}</span>

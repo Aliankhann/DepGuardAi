@@ -13,4 +13,8 @@ class Remediation(Base):
     safe_version = Column(String, nullable=True)
     install_command = Column(String, nullable=False)
     checklist = Column(JSON, default=list)
+    temporary_mitigation = Column(String, nullable=True)
+    permanent_fix_summary = Column(String, nullable=True)
+    review_note = Column(String, nullable=True)
+    senior_review_urgency = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)

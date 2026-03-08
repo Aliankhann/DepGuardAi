@@ -105,7 +105,12 @@ async def run_pipeline(scan_id: int, db: Session) -> ScanRun:
         # Deterministic: estimates impact scope (isolated / module / subsystem).
         # No DB writes — results passed forward.
         _set_agent(scan, "analyzing", "blast_radius_agent", db)
-        blast_radius_results = await blast_radius_agent.run(alerts, alert_usages)
+        blast_radius_results = await blast_radius_agent.run(
+            alerts, alert_usages,
+            exploitability_results=exploitability_results,
+            repo=repo,
+            db=db,
+        )
         logger.info(f"[blast_radius_agent] Blast radius estimated for {len(blast_radius_results)} alerts")
 
         # ── 7. Risk Agent (Backboard) ──────────────────────────────────────
@@ -118,7 +123,11 @@ async def run_pipeline(scan_id: int, db: Session) -> ScanRun:
 
         # ── 8. Fix Agent ───────────────────────────────────────────────────
         _set_agent(scan, "analyzing", "fix_agent", db)
-        await fix_agent.run(alerts, repo, db)
+        await fix_agent.run(
+            alerts, repo, db,
+            exploitability_results=exploitability_results,
+            blast_radius_results=blast_radius_results,
+        )
         db.commit()
         logger.info("[fix_agent] Remediations generated")
 

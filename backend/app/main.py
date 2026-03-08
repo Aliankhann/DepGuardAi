@@ -7,22 +7,30 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
-from app.config import settings
-from app.db import Base, engine, get_db
+from alembic import command
+from alembic.config import Config
 
-# Import all models so they register with Base.metadata before create_all
-import app.models  # noqa: F401
+from app.config import settings
+from app.db import get_db
+
+import app.models  # noqa: F401 — ensures models register with metadata
 
 from app.routers import alerts, remediate, repos, scan
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+_BACKEND_ROOT = Path(__file__).parent.parent
+_ALEMBIC_CFG_PATH = _BACKEND_ROOT / "alembic.ini"
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    Base.metadata.create_all(bind=engine)
-    logger.info("Database tables ready")
+    alembic_cfg = Config(str(_ALEMBIC_CFG_PATH))
+    # Override script_location with absolute path so it resolves regardless of cwd
+    alembic_cfg.set_main_option("script_location", str(_BACKEND_ROOT / "alembic"))
+    command.upgrade(alembic_cfg, "head")
+    logger.info("Database schema at head")
     yield
 
 
@@ -88,6 +96,12 @@ router.get('/users', async (req, res) => {
   return res.json(_.pick(users, ['id', 'name', 'email']));
 });
 
+router.post('/users/merge', async (req, res) => {
+  // Merge user-supplied config into defaults — prototype pollution risk
+  const merged = _.merge({}, defaultConfig, req.body);
+  return res.json(merged);
+});
+
 module.exports = router;
 """,
     "src/auth/session.js": """\
@@ -99,6 +113,28 @@ export async function validateSession(token) {
   const response = await axios.post('/auth/validate', payload);
   return response.data;
 }
+
+export async function fetchUserProfile(userId, redirectUrl) {
+  // SSRF risk: redirectUrl is user-controlled and passed to axios
+  const response = await axios.get(redirectUrl + '/profile/' + userId);
+  return response.data;
+}
+""",
+    "src/middleware/app.js": """\
+const express = require('express');
+
+const app = express();
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Query string parsing via qs — vulnerable to prototype poisoning
+app.use((req, res, next) => {
+  const queryParams = req.query;
+  next();
+});
+
+module.exports = app;
 """,
     "src/utils/helpers.js": """\
 const _ = require('lodash');
@@ -116,18 +152,15 @@ module.exports = { deepMerge };
 async def seed_demo(db: Session = Depends(get_db)):
     from app.models.repository import Repository
 
-    # Create fixture directory and files
+    # Always write fixture files so the demo repo stays in sync with DEMO_JS_FILES.
+    # This ensures updated content (new files, changed snippets) takes effect on every seed.
     DEMO_REPO_PATH.mkdir(parents=True, exist_ok=True)
-
-    pkg_file = DEMO_REPO_PATH / "package.json"
-    if not pkg_file.exists():
-        pkg_file.write_text(json.dumps(DEMO_PACKAGE_JSON, indent=2))
+    (DEMO_REPO_PATH / "package.json").write_text(json.dumps(DEMO_PACKAGE_JSON, indent=2))
 
     for rel_path, content in DEMO_JS_FILES.items():
         full_path = DEMO_REPO_PATH / rel_path
         full_path.parent.mkdir(parents=True, exist_ok=True)
-        if not full_path.exists():
-            full_path.write_text(content)
+        full_path.write_text(content)
 
     # Idempotent: return existing demo repo if already seeded
     existing = db.query(Repository).filter(Repository.name == "demo-app").first()
@@ -153,4 +186,44 @@ async def seed_demo(db: Session = Depends(get_db)):
         "repo_id": repo.id,
         "local_path": str(DEMO_REPO_PATH),
         "next_step": f"POST /repos/{repo.id}/scan",
+    }
+
+
+@app.post("/demo/reset", tags=["demo"])
+async def reset_demo(db: Session = Depends(get_db)):
+    """
+    Delete all demo data so the demo can be run fresh.
+    Removes the demo-app repository and all associated scans, alerts, analyses,
+    remediations, and usage locations. Does NOT delete Backboard assistant memory
+    (intentional — use reset only for DB cleanup, not memory wipe).
+    Safe to call multiple times.
+    """
+    from app.models.alert import Alert
+    from app.models.analysis import Analysis
+    from app.models.dependency import Dependency
+    from app.models.remediation import Remediation
+    from app.models.repository import Repository
+    from app.models.scan_run import ScanRun
+    from app.models.usage import UsageLocation
+
+    repo = db.query(Repository).filter(Repository.name == "demo-app").first()
+    if not repo:
+        return {"message": "No demo data found — nothing to reset."}
+
+    # Delete in FK-safe order: usages → remediations → analyses → alerts → deps → scans → repo
+    alert_ids = [a.id for a in db.query(Alert.id).filter(Alert.repo_id == repo.id).all()]
+    if alert_ids:
+        db.query(UsageLocation).filter(UsageLocation.alert_id.in_(alert_ids)).delete(synchronize_session=False)
+        db.query(Remediation).filter(Remediation.alert_id.in_(alert_ids)).delete(synchronize_session=False)
+        db.query(Analysis).filter(Analysis.alert_id.in_(alert_ids)).delete(synchronize_session=False)
+
+    db.query(Alert).filter(Alert.repo_id == repo.id).delete(synchronize_session=False)
+    db.query(Dependency).filter(Dependency.repo_id == repo.id).delete(synchronize_session=False)
+    db.query(ScanRun).filter(ScanRun.repo_id == repo.id).delete(synchronize_session=False)
+    db.delete(repo)
+    db.commit()
+
+    return {
+        "message": "Demo data cleared. Run POST /demo/seed to start fresh.",
+        "alerts_deleted": len(alert_ids),
     }

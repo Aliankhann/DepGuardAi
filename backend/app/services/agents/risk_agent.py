@@ -127,7 +127,7 @@ async def _analyze_package(
         analysis = Analysis(
             alert_id=alert.id,
             risk_level=analysis_dict.get("risk_level", "medium"),
-            confidence=analysis_dict.get("confidence", "low"),
+            confidence=conf["confidence"],
             reasoning=analysis_dict.get("reasoning", ""),
             business_impact=analysis_dict.get("business_impact", ""),
             recommended_fix=analysis_dict.get("recommended_fix", ""),
@@ -143,6 +143,8 @@ async def _analyze_package(
             exploitability_reason=expl.get("exploitability_reason"),
             detected_functions=expl.get("detected_functions"),
             blast_radius_label=br.get("blast_radius_label"),
+            affected_surfaces=br.get("affected_surfaces"),
+            scope_clarity=br.get("scope_clarity"),
             confidence_percent=conf["confidence_percent"],
             confidence_reasons=conf["confidence_reasons"],
         )
