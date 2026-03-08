@@ -10,6 +10,7 @@ Steps:
 3. Persist Dependency + Alert records
 """
 
+import asyncio
 import json
 import logging
 import re
@@ -88,8 +89,26 @@ def _parse_requirements_txt(repo_path: Path) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
+OSV_VULN_URL = "https://api.osv.dev/v1/vulns/{}"
+
+
+async def _fetch_vuln_detail(client: httpx.AsyncClient, vuln_id: str) -> dict:
+    try:
+        resp = await client.get(OSV_VULN_URL.format(vuln_id), timeout=10.0)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        logger.warning(f"Failed to fetch details for {vuln_id}: {e}")
+        return {"id": vuln_id}
+
+
 async def _query_osv(packages: list[dict]) -> list[dict]:
-    """Returns OSV results list aligned 1-to-1 with the input packages list."""
+    """Returns OSV results aligned 1-to-1 with packages.
+
+    querybatch only returns {id, modified} stubs — we enrich each vuln
+    with a second pass to GET /v1/vulns/{id} for full details (summary,
+    affected ranges, severity, etc.).
+    """
     queries = [
         {
             "package": {"name": p["name"], "ecosystem": p["ecosystem"]},
@@ -102,14 +121,35 @@ async def _query_osv(packages: list[dict]) -> list[dict]:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.post(OSV_BATCH_URL, json={"queries": queries})
             resp.raise_for_status()
-            return resp.json().get("results", [])
+            stub_results = resp.json().get("results", [])
+
+        # Collect all unique vuln IDs from stubs
+        all_ids = [
+            v["id"]
+            for result in stub_results
+            for v in result.get("vulns", [])
+            if "id" in v
+        ]
+
+        if all_ids:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                details = await asyncio.gather(
+                    *[_fetch_vuln_detail(client, vid) for vid in all_ids]
+                )
+            detail_map = {d["id"]: d for d in details}
+            for result in stub_results:
+                result["vulns"] = [
+                    detail_map.get(v.get("id", ""), v) for v in result.get("vulns", [])
+                ]
+
+        return stub_results
+
     except Exception as e:
         logger.warning(f"OSV query failed ({e}); loading fixture fallback")
         if FIXTURE_PATH.exists():
             with open(FIXTURE_PATH) as f:
                 data = json.load(f)
             results = data.get("results", [])
-            # Pad to match packages length
             while len(results) < len(packages):
                 results.append({"vulns": []})
             return results[: len(packages)]

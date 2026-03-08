@@ -29,7 +29,11 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="DepGuard API",
     version="1.0.0",
-    description="Dependency security analysis powered by Backboard AI",
+    description=(
+        "Dependency risk investigation engine. "
+        "Maps vulnerable packages to actual code usage, classifies exploit context "
+        "by code path sensitivity, and runs AI-backed exploitability triage per repository."
+    ),
     lifespan=lifespan,
 )
 
