@@ -11,5 +11,5 @@ class RemediationResponse(BaseModel):
     alert_id: int
     safe_version: Optional[str]
     install_command: str
-    checklist: list
+    checklist: list[str]
     created_at: datetime

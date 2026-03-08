@@ -5,9 +5,13 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal, get_db
+from app.models.alert import Alert
+from app.models.analysis import Analysis
+from app.models.remediation import Remediation
 from app.models.repository import Repository
 from app.models.scan_run import ScanRun
-from app.schemas.scan import ScanRunResponse, ScanStatusResponse
+from app.models.usage import UsageLocation
+from app.schemas.scan import ScanRunResponse, ScanStatusResponse, ScanVerifyResponse
 from app.services.agent_orchestrator import run_pipeline
 
 logger = logging.getLogger(__name__)
@@ -62,3 +66,60 @@ async def get_scan_status(scan_id: int, db: Session = Depends(get_db)):
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
     return scan
+
+
+@router.get("/scans/{scan_id}/verify", response_model=ScanVerifyResponse)
+async def verify_scan(scan_id: int, db: Session = Depends(get_db)):
+    """Audit a completed scan: check coverage, AI vs fallback, missing data."""
+    scan = db.get(ScanRun, scan_id)
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan not found")
+
+    alerts = db.query(Alert).filter(Alert.scan_id == scan_id).all()
+    total = len(alerts)
+
+    alerts_with_ai = 0
+    alerts_with_fallback = 0
+    alerts_missing_analysis = 0
+    alerts_missing_remediation = 0
+    alerts_with_usage = 0
+    alerts_without_usage = 0
+
+    for alert in alerts:
+        analysis = db.query(Analysis).filter(Analysis.alert_id == alert.id).first()
+        if not analysis:
+            alerts_missing_analysis += 1
+        elif analysis.analysis_source == "backboard_ai":
+            alerts_with_ai += 1
+        else:
+            alerts_with_fallback += 1
+
+        has_remediation = db.query(Remediation).filter(Remediation.alert_id == alert.id).first()
+        if not has_remediation:
+            alerts_missing_remediation += 1
+
+        usage_count = db.query(UsageLocation).filter(UsageLocation.alert_id == alert.id).count()
+        if usage_count > 0:
+            alerts_with_usage += 1
+        else:
+            alerts_without_usage += 1
+
+    duration = None
+    if scan.completed_at and scan.started_at:
+        duration = (scan.completed_at - scan.started_at).total_seconds()
+
+    coverage_pct = (alerts_with_ai / total * 100) if total > 0 else 0.0
+
+    return ScanVerifyResponse(
+        scan_id=scan_id,
+        status=scan.status,
+        total_alerts=total,
+        alerts_with_ai_analysis=alerts_with_ai,
+        alerts_with_fallback=alerts_with_fallback,
+        alerts_with_usage_found=alerts_with_usage,
+        alerts_without_usage=alerts_without_usage,
+        alerts_missing_analysis=alerts_missing_analysis,
+        alerts_missing_remediation=alerts_missing_remediation,
+        pipeline_duration_seconds=duration,
+        coverage_pct=round(coverage_pct, 1),
+    )

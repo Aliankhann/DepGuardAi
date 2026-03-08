@@ -13,3 +13,7 @@ class UsageLocation(Base):
     snippet = Column(String, nullable=False)
     import_type = Column(String, default="esm")  # esm | cjs | symbol | python
     context_tags = Column(JSON, default=list)
+    sensitivity_level = Column(String, nullable=True)         # "HIGH" | "MEDIUM" | "LOW"
+    sensitive_surface_reason = Column(String, nullable=True)  # AI one-sentence explanation
+    subsystem_labels = Column(JSON, nullable=True)            # list[str]
+    user_input_proximity = Column(String, nullable=True)      # "direct" | "indirect" | "none"

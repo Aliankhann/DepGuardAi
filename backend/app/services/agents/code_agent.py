@@ -28,7 +28,7 @@ SKIP_DIRS = {"node_modules", ".git", "__pycache__", ".venv", "venv", "dist", "bu
 
 def _get_snippet(lines: list[str], line_idx: int) -> str:
     start = max(0, line_idx - 1)
-    end = min(len(lines), line_idx + 2)
+    end = min(len(lines), line_idx + 8)  # 7 lines after for call-site and usage context
     return "\n".join(lines[start:end])
 
 

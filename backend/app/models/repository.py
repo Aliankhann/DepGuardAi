@@ -15,4 +15,5 @@ class Repository(Base):
     ecosystem = Column(String, default="npm")
     language = Column(String, default="node")
     backboard_assistant_id = Column(String, nullable=True)
+    backboard_depvuln_assistant_id = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)

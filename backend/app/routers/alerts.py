@@ -1,10 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models.alert import Alert
 from app.models.analysis import Analysis
 from app.models.dependency import Dependency
+from app.models.remediation import Remediation
+from app.models.scan_run import ScanRun
 from app.models.usage import UsageLocation
 from app.schemas.alert import (
     AlertDetail,
@@ -12,6 +16,7 @@ from app.schemas.alert import (
     AnalysisResponse,
     UsageLocationResponse,
 )
+from app.schemas.remediation import RemediationResponse
 
 router = APIRouter(tags=["alerts"])
 
@@ -36,8 +41,28 @@ def _build_summary(alert: Alert, db: Session) -> AlertSummary:
 
 
 @router.get("/repos/{repo_id}/alerts", response_model=list[AlertSummary])
-async def list_alerts(repo_id: int, db: Session = Depends(get_db)):
-    alerts = db.query(Alert).filter(Alert.repo_id == repo_id).all()
+async def list_alerts(
+    repo_id: int,
+    scan_id: Optional[int] = Query(None, description="Filter by scan ID. Defaults to latest completed scan."),
+    db: Session = Depends(get_db),
+):
+    if scan_id is not None:
+        scan = db.get(ScanRun, scan_id)
+        if not scan or scan.repo_id != repo_id:
+            raise HTTPException(status_code=404, detail="Scan not found for this repo")
+        target_scan_id = scan_id
+    else:
+        latest = (
+            db.query(ScanRun)
+            .filter(ScanRun.repo_id == repo_id, ScanRun.status == "complete")
+            .order_by(ScanRun.started_at.desc())
+            .first()
+        )
+        if not latest:
+            return []
+        target_scan_id = latest.id
+
+    alerts = db.query(Alert).filter(Alert.scan_id == target_scan_id).all()
     return [_build_summary(a, db) for a in alerts]
 
 
@@ -50,6 +75,7 @@ async def get_alert(alert_id: int, db: Session = Depends(get_db)):
     dep = db.get(Dependency, alert.dependency_id)
     usages = db.query(UsageLocation).filter(UsageLocation.alert_id == alert.id).all()
     analysis = db.query(Analysis).filter(Analysis.alert_id == alert.id).first()
+    remediation = db.query(Remediation).filter(Remediation.alert_id == alert.id).first()
 
     osv_data = alert.osv_data or {}
     vuln_aliases = osv_data.get("aliases", [])
@@ -68,4 +94,6 @@ async def get_alert(alert_id: int, db: Session = Depends(get_db)):
         references=references,
         usage_locations=[UsageLocationResponse.model_validate(u) for u in usages],
         analysis=AnalysisResponse.model_validate(analysis) if analysis else None,
+        remediation=RemediationResponse.model_validate(remediation) if remediation else None,
+        dependency_investigation=alert.dependency_investigation,
     )

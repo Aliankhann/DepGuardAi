@@ -14,3 +14,4 @@ class Alert(Base):
     severity = Column(String, default="MEDIUM")
     summary = Column(String, nullable=False)
     osv_data = Column(JSON, nullable=True)
+    dependency_investigation = Column(JSON, nullable=True)  # structured vuln intelligence from depvuln_agent
