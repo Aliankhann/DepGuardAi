@@ -49,8 +49,8 @@ The **Risk Agent** uses Backboard's memory model — one persistent Assistant pe
 ### 1. Clone the repo
 
 ```bash
-git clone https://github.com/your-org/depguard.git
-cd depguard
+git clone https://github.com/Aliankhann/DepGuardAi.git
+cd DepGuardAi
 ```
 
 ### 2. Set up the backend
